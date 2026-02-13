@@ -55,14 +55,32 @@
   // ── Camera / pan state ─────────────────────
   let camX = -(CANVAS_W / 2 - window.innerWidth / 2);
   let camY = -(CANVAS_H / 2 - window.innerHeight / 2);
+  let zoom = 1;
+  const ZOOM_MIN = 0.3;
+  const ZOOM_MAX = 3;
   let isDragging = false;
   let startX, startY;
   let dragMoved = false;
 
   function applyCamera() {
-    canvas.style.transform = `translate(${camX}px, ${camY}px)`;
+    canvas.style.transform = `translate(${camX}px, ${camY}px) scale(${zoom})`;
+    canvas.style.transformOrigin = '0 0';
   }
   applyCamera();
+
+  function applyZoom(newZoom, pivotX, pivotY) {
+    // pivotX/pivotY are in viewport coords
+    // Convert pivot point to canvas coords before zoom
+    const canvasXBefore = (pivotX - camX) / zoom;
+    const canvasYBefore = (pivotY - camY) / zoom;
+    zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+    // Adjust cam so the same canvas point stays under the pivot
+    camX = pivotX - canvasXBefore * zoom;
+    camY = pivotY - canvasYBefore * zoom;
+    applyCamera();
+    checkVisibility();
+    updateZoomDisplay();
+  }
 
   // ── Scatter photos on canvas ───────────────
   function shuffle(arr) {
@@ -147,10 +165,10 @@
 
   // ── Visibility / scroll-reveal ─────────────
   function checkVisibility() {
-    const vl = -camX;
-    const vt = -camY;
-    const vr = vl + window.innerWidth;
-    const vb = vt + window.innerHeight;
+    const vl = -camX / zoom;
+    const vt = -camY / zoom;
+    const vr = vl + window.innerWidth / zoom;
+    const vb = vt + window.innerHeight / zoom;
     const margin = 100; // reveal a little early
 
     cards.forEach(({ el, x, y, w, h }) => {
@@ -202,22 +220,53 @@
     setTimeout(() => { dragMoved = false; }, 0);
   });
 
-  // ── Drag / pan (touch) ─────────────────────
+  // ── Drag / pan (touch) + pinch-to-zoom ─────
+  let lastPinchDist = 0;
+  let lastPinchMidX = 0;
+  let lastPinchMidY = 0;
+
   wrapper.addEventListener('touchstart', (e) => {
     if (lightbox.classList.contains('active')) return;
-    const t = e.touches[0];
-    isDragging = true;
-    dragMoved = false;
-    startX = t.clientX - camX;
-    startY = t.clientY - camY;
+    if (e.touches.length === 2) {
+      // Start pinch
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist = Math.sqrt(dx * dx + dy * dy);
+      lastPinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      lastPinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      isDragging = false;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      isDragging = true;
+      dragMoved = false;
+      startX = t.clientX - camX;
+      startY = t.clientY - camY;
+    }
   }, { passive: true });
 
   wrapper.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      if (lastPinchDist > 0) {
+        const scale = dist / lastPinchDist;
+        applyZoom(zoom * scale, midX, midY);
+      }
+      lastPinchDist = dist;
+      lastPinchMidX = midX;
+      lastPinchMidY = midY;
+      hideScrollHint();
+      return;
+    }
     if (!isDragging) return;
     const t = e.touches[0];
-    const dx = t.clientX - startX - camX;
-    const dy = t.clientY - startY - camY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true;
+    const tdx = t.clientX - startX - camX;
+    const tdy = t.clientY - startY - camY;
+    if (Math.abs(tdx) > 4 || Math.abs(tdy) > 4) dragMoved = true;
     camX = t.clientX - startX;
     camY = t.clientY - startY;
     applyCamera();
@@ -226,19 +275,28 @@
     e.preventDefault();
   }, { passive: false });
 
-  wrapper.addEventListener('touchend', () => {
-    isDragging = false;
-    setTimeout(() => { dragMoved = false; }, 0);
+  wrapper.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) lastPinchDist = 0;
+    if (e.touches.length === 0) {
+      isDragging = false;
+      setTimeout(() => { dragMoved = false; }, 0);
+    }
   });
 
-  // ── Scroll-wheel pan ───────────────────────
+  // ── Scroll-wheel: zoom (Ctrl/Cmd) or pan ───
   wrapper.addEventListener('wheel', (e) => {
     e.preventDefault();
-    camX -= e.deltaX;
-    camY -= e.deltaY;
-    applyCamera();
-    checkVisibility();
     hideScrollHint();
+    if (e.ctrlKey || e.metaKey) {
+      // Zoom toward cursor
+      const delta = -e.deltaY * 0.003;
+      applyZoom(zoom * (1 + delta), e.clientX, e.clientY);
+    } else {
+      camX -= e.deltaX;
+      camY -= e.deltaY;
+      applyCamera();
+      checkVisibility();
+    }
   }, { passive: false });
 
   // ── Lightbox ───────────────────────────────
@@ -274,6 +332,30 @@
 
   // Also hide hint after 6 seconds regardless
   setTimeout(hideScrollHint, 6000);
+
+  // ── Zoom UI controls ──────────────────────
+  const zoomControls = document.createElement('div');
+  zoomControls.id = 'zoom-controls';
+  zoomControls.innerHTML = `
+    <button id="zoom-in" aria-label="Zoom in">+</button>
+    <span id="zoom-level">100%</span>
+    <button id="zoom-out" aria-label="Zoom out">&minus;</button>
+  `;
+  document.body.appendChild(zoomControls);
+
+  function updateZoomDisplay() {
+    document.getElementById('zoom-level').textContent = Math.round(zoom * 100) + '%';
+  }
+
+  document.getElementById('zoom-in').addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyZoom(zoom * 1.25, window.innerWidth / 2, window.innerHeight / 2);
+  });
+
+  document.getElementById('zoom-out').addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyZoom(zoom / 1.25, window.innerWidth / 2, window.innerHeight / 2);
+  });
 
   // ── Window resize ──────────────────────────
   window.addEventListener('resize', checkVisibility);

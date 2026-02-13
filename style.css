@@ -401,6 +401,63 @@ body::before {
 }
 
 /* ============================================
+   Zoom Controls
+   ============================================ */
+
+#zoom-controls {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: rgba(26, 10, 16, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(253, 164, 175, 0.15);
+  border-radius: 16px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+#zoom-controls button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--rose-300);
+  font-size: 1.4rem;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, transform 0.15s;
+  line-height: 1;
+}
+
+#zoom-controls button:hover {
+  background: rgba(244, 63, 94, 0.3);
+  transform: scale(1.08);
+}
+
+#zoom-controls button:active {
+  transform: scale(0.95);
+}
+
+#zoom-level {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.65rem;
+  color: rgba(253, 164, 175, 0.6);
+  letter-spacing: 1px;
+  padding: 2px 0;
+  user-select: none;
+}
+
+/* ============================================
    Responsive tweaks
    ============================================ */
 
